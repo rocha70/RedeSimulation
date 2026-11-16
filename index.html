@@ -689,6 +689,8 @@ const CF = [
   'snmp',
   'ntpSrv',
   'ntpMaster',
+  'ospf3',
+  'pools6',
   'v6r',
   'routes6',
   'acls',
@@ -1022,7 +1024,7 @@ const aclPass = (dv, i, w) => {
   return L ? aclEval(L) : true;
 };
 const inc = (d, t) => {
-  const ms = 'ilvrhakm'.includes(d.mode) ? d.mode + 'c' : d.mode;
+  const ms = 'ilvrhakmq'.includes(d.mode) ? d.mode + 'c' : d.mode;
   return CMDS.some(([modes, pat, fn, only]) => {
     if (!ms.split('').some((m) => modes.includes(m)) || (only && only != d.type && !(only == 'r' && d.l3)))
       return false;
@@ -1262,9 +1264,9 @@ const CMDS = [
     'r',
   ],
   ['c', 'exit', (d) => (d.mode = 'p')],
-  ['ivlrhakm', 'exit', (d) => (d.mode = 'c')],
+  ['ivlrhakmq', 'exit', (d) => (d.mode = 'c')],
   [
-    'civlrhakm',
+    'civlrhakmq',
     'end',
     (d) => {
       logEv(d, 5, 'SYS-5-CONFIG_I', 'Configured from console by console');
@@ -1648,7 +1650,8 @@ const CMDS = [
     'r',
     'router-id <h>',
     (d, a) => {
-      if (d.ospf && ip2n(a[0]) !== null) d.ospf.rid = a[0];
+      const o = d.rt == 'ospf3' ? d.ospf3 : d.ospf;
+      if (o && ip2n(a[0]) !== null) o.rid = a[0];
     },
     'r',
   ],
@@ -2211,7 +2214,8 @@ const CMDS = [
     'r',
     'default-information originate',
     (d) => {
-      if (d.rt == 'ospf' && d.ospf) d.ospf.dio = d.ospf.dio == 'always' ? 'always' : 'yes';
+      const o = d.rt == 'ospf3' ? d.ospf3 : d.rt == 'ospf' ? d.ospf : null;
+      if (o) o.dio = o.dio == 'always' ? 'always' : 'yes';
     },
     'r',
   ],
@@ -2219,7 +2223,8 @@ const CMDS = [
     'r',
     'default-information originate always',
     (d) => {
-      if (d.rt == 'ospf' && d.ospf) d.ospf.dio = 'always';
+      const o = d.rt == 'ospf3' ? d.ospf3 : d.rt == 'ospf' ? d.ospf : null;
+      if (o) o.dio = 'always';
     },
     'r',
   ],
@@ -2227,7 +2232,8 @@ const CMDS = [
     'r',
     'no default-information originate',
     (d) => {
-      if (d.ospf) delete d.ospf.dio;
+      const o = d.rt == 'ospf3' ? d.ospf3 : d.ospf;
+      if (o) delete o.dio;
     },
     'r',
   ],
@@ -2663,6 +2669,116 @@ const CMDS = [
     },
   ],
   ['up', 'show snmp', showSnmp],
+  [
+    'c',
+    'ipv6 router ospf <n>',
+    (d, a) => {
+      d.ospf3 = d.ospf3 || { pid: +a[0], rid: '', pass: [], dio: '' };
+      d.ospf3.pid = +a[0];
+      d.rt = 'ospf3';
+      d.mode = 'r';
+    },
+    'r',
+  ],
+  [
+    'c',
+    'no ipv6 router ospf <n>',
+    (d) => {
+      delete d.ospf3;
+    },
+    'r',
+  ],
+  [
+    'i',
+    'ipv6 ospf <p> area <a>',
+    (d, a) => {
+      cur(d).o3 = { pid: +a[0], area: a[1] };
+    },
+    'r',
+  ],
+  [
+    'i',
+    'no ipv6 ospf <p> area <a>',
+    (d) => {
+      delete cur(d).o3;
+    },
+    'r',
+  ],
+  [
+    'i',
+    'ipv6 ospf cost <n>',
+    (d, a) => {
+      cur(d).o3cost = +a[0];
+    },
+    'r',
+  ],
+  [
+    'i',
+    'ipv6 ospf priority <n>',
+    (d, a) => {
+      cur(d).o3prio = +a[0];
+    },
+    'r',
+  ],
+  ['up', 'show ipv6 ospf', showO3, 'r'],
+  ['up', 'show ipv6 ospf neighbor', showO3N, 'r'],
+  ['up', 'show ipv6 ospf interface', (d) => showO3If(d), 'r'],
+  ['up', 'show ipv6 ospf interface brief', (d) => showO3If(d, 1), 'r'],
+  ['up', 'show ipv6 route ospf', (d) => showV6r(d, 'O'), 'r'],
+  [
+    'c',
+    'ipv6 dhcp pool <n>',
+    (d, a) => {
+      d.pools6 = d.pools6 || {};
+      d.pools6[a[0]] = d.pools6[a[0]] || { prefix: '', dns: '', dom: '' };
+      d.pl6 = a[0];
+      d.mode = 'q';
+    },
+    'r',
+  ],
+  [
+    'q',
+    'address prefix <p>',
+    (d, a) => {
+      if (!pa(a[0])) print('% Invalid input detected at ’^’ marker.');
+      else d.pools6[d.pl6].prefix = a[0];
+    },
+  ],
+  [
+    'q',
+    'dns-server <ip>',
+    (d, a) => {
+      if (p6(a[0]) === null) print('% Invalid input detected at ’^’ marker.');
+      else d.pools6[d.pl6].dns = a[0];
+    },
+  ],
+  [
+    'q',
+    'domain-name <n>',
+    (d, a) => {
+      d.pools6[d.pl6].dom = a[0];
+    },
+  ],
+  [
+    'i',
+    'ipv6 dhcp server <n>',
+    (d, a) => {
+      cur(d).dh6 = a[0];
+    },
+    'r',
+  ],
+  [
+    'i',
+    'no ipv6 dhcp server',
+    (d) => {
+      delete cur(d).dh6;
+    },
+    'r',
+  ],
+  ['i', 'ipv6 nd managed-config-flag', () => {}, 'r'],
+  ['i', 'ipv6 nd other-config-flag', () => {}, 'r'],
+  ['up', 'show ipv6 dhcp pool', showD6P, 'r'],
+  ['up', 'show ipv6 dhcp binding', showD6B, 'r'],
 ];
 const PR = (d) =>
   asks[d.id]
@@ -2688,6 +2804,7 @@ const PR = (d) =>
               a: '(config-nacl)#',
               k: '(config-isakmp)#',
               m: '(config-crypto-map)#',
+              q: '(config-dhcpv6)#',
             }[d.mode];
 
 /* ============================================================
@@ -2863,6 +2980,9 @@ function factory(d) {
     'snmp',
     'ntpSrv',
     'ntpMaster',
+    'ospf3',
+    'pools6',
+    'leases6',
     'v6r',
     'routes6',
     'acls',
@@ -3452,7 +3572,7 @@ function nh6(d, dst) {
   }
   for (const i of act)
     for (const a of v6a(d, i)) if (!a.ll && (dst & m6(a.l)) === (a.n & m6(a.l))) return { i, nh: dst };
-  const rts = d.type == 'p' ? (d.gw6 ? [{ p: '::/0', via: d.gw6 }] : []) : d.routes6 || [];
+  const rts = d.type == 'p' ? (d.gw6 ? [{ p: '::/0', via: d.gw6 }] : []) : (d.routes6 || []).concat(dynRoutes6(d));
   let best = null;
   for (const r of rts) {
     const q = pa(r.p);
@@ -3548,31 +3668,7 @@ function showV6b(d) {
   });
   print(s.trimEnd());
 }
-function showV6r(d) {
-  let s = 'IPv6 Routing Table\nCodes: C - Connected, L - Local, S - Static\n';
-  d.ifs.forEach((i) => {
-    if (!up(i)) return;
-    v6a(d, i).forEach((a) => {
-      if (a.ll) return;
-      s +=
-        'C   ' +
-        f6(a.n & m6(a.l)).toUpperCase() +
-        '/' +
-        a.l +
-        ' [0/0]\n     via ' +
-        sn(i) +
-        ', directly connected\nL   ' +
-        f6(a.n).toUpperCase() +
-        '/128 [0/0]\n     via ' +
-        sn(i) +
-        ', receive\n';
-    });
-  });
-  (d.routes6 || []).forEach(
-    (r) => (s += 'S   ' + r.p.toUpperCase() + ' [1/0]\n     via ' + r.via.toUpperCase() + '\n'),
-  );
-  print(s.trimEnd());
-}
+
 function v6cfg(d) {
   return (
     d.ifs
@@ -3595,7 +3691,8 @@ function v6cfg(d) {
       })
       .join('\n\n') +
     '\n\nDefault Gateway: ' +
-    (d.gw6 ? d.gw6.toUpperCase() : '::')
+    (d.gw6 ? d.gw6.toUpperCase() : '::') +
+    (d.dns6 ? '\nDNS Server: ' + d.dns6.toUpperCase() : '')
   );
 }
 function slaac(d) {
@@ -4068,6 +4165,438 @@ function showRoute(d, only) {
 }
 
 /* ============================================================
+   3d. OSPFv3 (IPv6): várias áreas, ABR, custo, DR/BDR e rota padrão
+   ============================================================ */
+let dc6 = null,
+  O3M = null;
+function o3Rid(x) {
+  if (x.ospf3 && x.ospf3.rid) return x.ospf3.rid;
+  const a = ridAuto(x);
+  return a === '0.0.0.0' ? '' : a;
+}
+function o3Run(x) {
+  return !!x.ospf3 && !!x.v6r && !!o3Rid(x);
+}
+function o3On(x, i) {
+  return !!x.ospf3 && !!i.o3 && i.o3.pid == x.ospf3.pid && up(i) && v6a(x, i).length > 0;
+}
+function o3Pass(x, i) {
+  return x.ospf3.pass.includes(x.ifs.indexOf(i));
+}
+function o3Cost(x, i) {
+  return i.o3cost != null ? i.o3cost : ifCost(x, i);
+}
+function adjs6() {
+  const r = [];
+  D.forEach((x) => {
+    if (!isR(x) || !o3Run(x)) return;
+    x.ifs.forEach((i) => {
+      if (!o3On(x, i) || o3Pass(x, i) || i.lo) return;
+      l2(x, i).forEach(([y, yi]) => {
+        if (
+          isR(y) &&
+          y !== x &&
+          o3Run(y) &&
+          o3On(y, yi) &&
+          !o3Pass(y, yi) &&
+          normArea(i.o3.area) === normArea(yi.o3.area)
+        )
+          r.push([x, i, y, yi]);
+      });
+    });
+  });
+  return r;
+}
+function o3Calc() {
+  const out = {};
+  D.forEach((x) => (out[x.id] = []));
+  const R = D.filter((x) => isR(x) && o3Run(x));
+  O3M = { R, areas: new Map(), abr: new Set(), asbr: new Set(), roles: new Map() };
+  if (!R.length) return out;
+  const AI = new Map();
+  R.forEach((x) => {
+    const L = [],
+      A = new Set();
+    x.ifs.forEach((i) => {
+      if (!o3On(x, i)) return;
+      const ar = normArea(i.o3.area);
+      A.add(ar);
+      v6a(x, i)
+        .filter((a) => !a.ll)
+        .forEach((a) => {
+          const l = i.lo ? 128 : a.l;
+          L.push({ i, a: ar, n: a.n & m6(l), l, c: o3Cost(x, i) });
+        });
+    });
+    AI.set(x, L);
+    O3M.areas.set(x, A);
+    if (A.size > 1) O3M.abr.add(x);
+  });
+  const E = adjs6(),
+    areasAll = new Set();
+  R.forEach((x) => O3M.areas.get(x).forEach((a) => areasAll.add(a)));
+  /* DR/BDR */
+  const par = new Map(),
+    root = (i) => {
+      while (par.has(i) && par.get(i) !== i) i = par.get(i);
+      return i;
+    };
+  E.forEach(([x, i, y, yi]) => {
+    if (!par.has(i)) par.set(i, i);
+    if (!par.has(yi)) par.set(yi, yi);
+    const a = root(i),
+      b = root(yi);
+    if (a !== b) par.set(a, b);
+  });
+  const comps = new Map();
+  par.forEach((_, i) => {
+    const r = root(i);
+    if (!comps.has(r)) comps.set(r, []);
+    comps.get(r).push(i);
+  });
+  comps.forEach((arr) => {
+    const cand = arr.map((i) => {
+      const x = R.find((q) => q.ifs.includes(i));
+      return { i, p: i.o3prio != null ? i.o3prio : 1, r: ip2n(o3Rid(x)) || 0 };
+    });
+    cand.forEach((o) => O3M.roles.set(o.i, o.i.ser ? 'P2P' : 'DROTHER'));
+    const c = cand.filter((o) => o.p > 0 && !o.i.ser).sort((a, b) => b.p - a.p || b.r - a.r);
+    if (c[0]) O3M.roles.set(c[0].i, 'DR');
+    if (c[1]) O3M.roles.set(c[1].i, 'BDR');
+  });
+  /* SPF */
+  const dijk = (s, edges) => {
+    const dist = new Map([[s, { d: 0, via: 0n, i: null }]]),
+      done = new Set();
+    for (;;) {
+      let u = null;
+      dist.forEach((v, k) => {
+        if (!done.has(k) && (u === null || v.d < dist.get(u).d)) u = k;
+      });
+      if (u === null) break;
+      done.add(u);
+      edges.forEach(([x, i, y, yi]) => {
+        if (x !== u) return;
+        const nd = dist.get(u).d + o3Cost(x, i),
+          cur = dist.get(y),
+          first = u === s ? { via: ll6(y, y.ifs.indexOf(yi)), i } : { via: dist.get(u).via, i: dist.get(u).i };
+        if (!cur || nd < cur.d || (nd === cur.d && first.via < cur.via))
+          dist.set(y, { d: nd, via: first.via, i: first.i });
+      });
+    }
+    return dist;
+  };
+  const spf = {};
+  areasAll.forEach((A) => {
+    const nodes = R.filter((x) => O3M.areas.get(x).has(A)),
+      edges = E.filter(([x, i]) => normArea(i.o3.area) === A),
+      M = new Map();
+    nodes.forEach((s) => M.set(s, dijk(s, edges)));
+    spf[A] = M;
+  });
+  const T = new Map();
+  R.forEach((x) => T.set(x, new Map()));
+  const key = (n, l) => f6(n) + '/' + l,
+    conn = (x, n, l) =>
+      x.ifs.some((j) => up(j) && v6a(x, j).some((a) => !a.ll && (j.lo ? 128 : a.l) === l && (a.n & m6(l)) === n)),
+    netsIn = (t, A) => AI.get(t).filter((o) => o.a === A),
+    put = (x, k, r) => {
+      const M = T.get(x),
+        c = M.get(k);
+      if (
+        !c ||
+        r.rank < c.rank ||
+        (r.rank == c.rank && (r.cost < c.cost || (r.cost == c.cost && (r.fwd || 0) < (c.fwd || 0))))
+      )
+        M.set(k, r);
+    };
+  areasAll.forEach((A) =>
+    spf[A].forEach((dist, s) =>
+      dist.forEach((v, t) =>
+        netsIn(t, A).forEach((o) => {
+          if (t === s || conn(s, o.n, o.l)) return;
+          put(s, key(o.n, o.l), { p: key(o.n, o.l), cost: v.d + o.c, via: v.via, i: v.i, rank: 0, code: 'O', area: A });
+        }),
+      ),
+    ),
+  );
+  const own = (b, A) => netsIn(b, A).map((o) => ({ n: o.n, l: o.l, metric: o.c })),
+    intra = (b, A) =>
+      [...T.get(b).values()]
+        .filter((r) => r.rank == 0 && r.area == A)
+        .map((r) => {
+          const q = pa(r.p);
+          return { n: q.n, l: q.l, metric: r.cost };
+        }),
+    install = (b, Y, list) => {
+      R.filter((s) => s !== b && O3M.areas.get(s).has(Y)).forEach((s) => {
+        const v = spf[Y].get(s).get(b);
+        if (!v) return;
+        list.forEach((o) => {
+          if (conn(s, o.n, o.l)) return;
+          put(s, key(o.n, o.l), {
+            p: key(o.n, o.l),
+            cost: v.d + o.metric,
+            via: v.via,
+            i: v.i,
+            rank: 1,
+            code: 'OI',
+            area: Y,
+          });
+        });
+      });
+    };
+  O3M.abr.forEach((b) => {
+    if (!O3M.areas.get(b).has('0')) return;
+    const l = [];
+    O3M.areas.get(b).forEach((X) => {
+      if (X !== '0') l.push(...own(b, X), ...intra(b, X));
+    });
+    install(b, '0', l);
+  });
+  O3M.abr.forEach((b) => {
+    O3M.areas.get(b).forEach((Y) => {
+      if (Y === '0') return;
+      const l = [
+        ...own(b, '0'),
+        ...[...T.get(b).values()]
+          .filter((r) => r.area == '0')
+          .map((r) => ({ n: pa(r.p).n, l: pa(r.p).l, metric: r.cost })),
+      ];
+      O3M.areas.get(b).forEach((X) => {
+        if (X !== '0' && X !== Y) l.push(...own(b, X), ...intra(b, X));
+      });
+      install(b, Y, l);
+    });
+  });
+  R.forEach((a) => {
+    if (a.ospf3.dio && (a.ospf3.dio == 'always' || (a.routes6 || []).some((r) => r.p == '::/0'))) O3M.asbr.add(a);
+  });
+  O3M.asbr.forEach((a) =>
+    R.forEach((s) => {
+      if (s === a) return;
+      const v = dijk(s, E).get(a);
+      if (v) put(s, '::/0', { p: '::/0', cost: 1, fwd: v.d, via: v.via, i: v.i, rank: 2, code: 'OE2', area: '' });
+    }),
+  );
+  R.forEach((x) =>
+    T.get(x).forEach((r) => {
+      if (r.i) out[x.id].push({ p: r.p, via: f6(r.via), ad: 110, code: r.code, cost: r.cost, i: r.i });
+    }),
+  );
+  return out;
+}
+function dynRoutes6(d) {
+  if (!dc6) dc6 = o3Calc();
+  return dc6[d.id] || [];
+}
+function o3Cfg(d) {
+  let s = '';
+  if (d.ospf3) {
+    s += 'ipv6 router ospf ' + d.ospf3.pid + '\n';
+    if (d.ospf3.rid) s += ' router-id ' + d.ospf3.rid + '\n';
+    d.ospf3.pass.forEach((k) => {
+      if (d.ifs[k]) s += ' passive-interface ' + sn(d.ifs[k]) + '\n';
+    });
+    if (d.ospf3.dio) s += ' default-information originate' + (d.ospf3.dio == 'always' ? ' always' : '') + '\n';
+    s += '!\n';
+  }
+  for (const n in d.pools6 || {}) {
+    const p = d.pools6[n];
+    s +=
+      'ipv6 dhcp pool ' +
+      n +
+      '\n' +
+      (p.prefix ? ' address prefix ' + p.prefix + '\n' : '') +
+      (p.dns ? ' dns-server ' + p.dns + '\n' : '') +
+      (p.dom ? ' domain-name ' + p.dom + '\n' : '') +
+      '!\n';
+  }
+  return s;
+}
+function o3IfCfg(i) {
+  let s = '';
+  if (i.o3) s += ' ipv6 ospf ' + i.o3.pid + ' area ' + i.o3.area + '\n';
+  if (i.o3cost != null) s += ' ipv6 ospf cost ' + i.o3cost + '\n';
+  if (i.o3prio != null) s += ' ipv6 ospf priority ' + i.o3prio + '\n';
+  if (i.dh6) s += ' ipv6 dhcp server ' + i.dh6 + '\n';
+  return s;
+}
+function showO3(d) {
+  dynRoutes6(d);
+  if (!d.ospf3) {
+    print('%OSPFv3: Router process not configured');
+    return;
+  }
+  if (!o3Run(d)) {
+    print(
+      '%OSPFv3: Router process ' +
+        d.ospf3.pid +
+        ' is not running, please configure a router-id' +
+        (d.v6r ? '' : ' e habilite ipv6 unicast-routing'),
+    );
+    return;
+  }
+  const A = [...(O3M.areas.get(d) || [])].sort((a, b) => a - b),
+    ab = O3M.abr.has(d),
+    as = O3M.asbr.has(d),
+    kind = [ab ? 'an area border' : '', as ? 'an autonomous system boundary' : ''].filter(Boolean);
+  print(
+    ' Routing Process "ospfv3 ' +
+      d.ospf3.pid +
+      '" with ID ' +
+      o3Rid(d) +
+      '\n It is ' +
+      (kind.length ? kind.join(' and ') + ' router' : 'an internal router') +
+      '\n Number of areas in this router is ' +
+      A.length +
+      '. ' +
+      A.length +
+      ' normal 0 stub 0 nssa\n' +
+      A.map(
+        (a) =>
+          '    Area ' +
+          (a == '0' ? 'BACKBONE(0)' : a) +
+          '\n        Number of interfaces in this area is ' +
+          d.ifs.filter((i) => o3On(d, i) && normArea(i.o3.area) == a).length,
+      ).join('\n'),
+  );
+}
+function showO3N(d) {
+  dynRoutes6(d);
+  let s =
+    'OSPFv3 Router with ID (' +
+    (o3Rid(d) || '-') +
+    ') (Process ID ' +
+    (d.ospf3 ? d.ospf3.pid : '-') +
+    ')\n\nNeighbor ID     Pri   State           Dead Time   Interface ID    Interface\n';
+  adjs6()
+    .filter((a) => a[0] === d)
+    .forEach(([x, i, y, yi]) => {
+      const ro = O3M.roles.get(yi) || 'DROTHER',
+        me = O3M.roles.get(i) || 'DROTHER',
+        st = i.ser ? 'FULL/-' : ro == 'DROTHER' && me == 'DROTHER' ? '2WAY/DROTHER' : 'FULL/' + ro;
+      s +=
+        pad(o3Rid(y), 16) +
+        pad(yi.o3prio != null ? yi.o3prio : 1, 6) +
+        pad(st, 16) +
+        pad('00:00:36', 12) +
+        pad(y.ifs.indexOf(yi) + 3, 16) +
+        i.n +
+        '\n';
+    });
+  print(s.trimEnd());
+}
+function showO3If(d, brief) {
+  dynRoutes6(d);
+  if (!d.ospf3) {
+    print('%OSPFv3: Router process not configured');
+    return;
+  }
+  const L = d.ifs.filter((i) => o3On(d, i));
+  if (brief) {
+    let s = 'Interface    PID   Area            Intf ID    Cost  State Nbrs F/C\n';
+    L.forEach((i) => {
+      const nb = adjs6().filter((a) => a[0] === d && a[1] === i).length;
+      s +=
+        pad(sn(i), 13) +
+        pad(d.ospf3.pid, 6) +
+        pad(normArea(i.o3.area), 16) +
+        pad(d.ifs.indexOf(i) + 3, 11) +
+        pad(o3Cost(d, i), 6) +
+        pad(i.lo ? 'LOOP' : O3M.roles.get(i) || 'DR', 6) +
+        nb +
+        '/' +
+        nb +
+        '\n';
+    });
+    print(s.trimEnd());
+    return;
+  }
+  print(
+    L.map((i) => {
+      const k = d.ifs.indexOf(i),
+        a = v6a(d, i).find((x) => x.ll);
+      return (
+        i.n +
+        ' is up, line protocol is up\n  Link Local Address ' +
+        (a ? f6(a.n).toUpperCase() : '') +
+        ', Interface ID ' +
+        (k + 3) +
+        '\n  Area ' +
+        normArea(i.o3.area) +
+        ', Process ID ' +
+        d.ospf3.pid +
+        ', Instance ID 0, Router ID ' +
+        o3Rid(d) +
+        '\n  Network Type ' +
+        (i.lo ? 'LOOPBACK' : i.ser ? 'POINT_TO_POINT' : 'BROADCAST') +
+        ', Cost: ' +
+        o3Cost(d, i) +
+        '\n  Transmit Delay is 1 sec, State ' +
+        (i.lo ? 'LOOP' : O3M.roles.get(i) || 'DR') +
+        ', Priority ' +
+        (i.o3prio != null ? i.o3prio : 1) +
+        '\n'
+      );
+    }).join('\n'),
+  );
+}
+function showV6r(d, only) {
+  only = typeof only == 'string' ? only : '';
+  let s =
+    'IPv6 Routing Table\nCodes: C - Connected, L - Local, S - Static, O - OSPF intra, OI - OSPF inter, OE2 - OSPF ext 2\n';
+  if (!only) {
+    d.ifs.forEach((i) => {
+      if (!up(i)) return;
+      v6a(d, i).forEach((a) => {
+        if (a.ll) return;
+        s +=
+          'C   ' +
+          f6(a.n & m6(a.l)).toUpperCase() +
+          '/' +
+          a.l +
+          ' [0/0]\n     via ' +
+          sn(i) +
+          ', directly connected\nL   ' +
+          f6(a.n).toUpperCase() +
+          '/128 [0/0]\n     via ' +
+          sn(i) +
+          ', receive\n';
+      });
+    });
+    (d.routes6 || []).forEach(
+      (r) => (s += 'S   ' + r.p.toUpperCase() + ' [1/0]\n     via ' + r.via.toUpperCase() + '\n'),
+    );
+  }
+  dynRoutes6(d).forEach(
+    (r) =>
+      (s +=
+        r.code.padEnd(4) +
+        r.p.toUpperCase() +
+        ' [110/' +
+        r.cost +
+        ']\n     via ' +
+        r.via.toUpperCase() +
+        ', ' +
+        sn(r.i) +
+        '\n'),
+  );
+  print(s.trimEnd());
+}
+
+function ping6ok(d, dst) {
+  const n = typeof dst == 'string' ? p6(dst) : dst;
+  if (n === null) return false;
+  if (v6own(d, n)) return true;
+  const r = nh6(d, n);
+  if (!r || fwd6(d, n, 16) != 'ok') return false;
+  const t = FIN6,
+    sa = src6(d, r.i, n);
+  return !!t && sa !== null && fwd6(t, sa, 16) == 'ok';
+}
+
+/* ============================================================
    4. Serviços de rede: DHCP, DNS, HTTP, telefone IP
    ============================================================ */
 function dhcp(pc, i) {
@@ -4170,6 +4699,73 @@ function callPhone(d, ip) {
   return rch(d, ip, 'udp', 5060)
     ? 'Chamada completada: ' + d.name + ' ↔ ' + t.name + ' (SIP/RTP).'
     : 'Chamada falhou: sem caminho até ' + t.name + ' (verifique IP, VLAN, rotas e ACL).';
+}
+
+/* ============================================================
+   4b. DHCPv6 (stateful): roteador ou servidor por placa
+   ============================================================ */
+function dhcp6(pc, i) {
+  i = i || pc.ifs[0];
+  for (const [x, xi] of l2(pc, i)) {
+    let pool = null;
+    if (isR(x) && xi.dh6 && (x.pools6 || {})[xi.dh6]) pool = x.pools6[xi.dh6];
+    else if (x.srv && xi.dhs6 && xi.dhs6.on) pool = xi.dhs6;
+    const q = pool ? pa(pool.prefix) : null;
+    if (!q) continue;
+    x.leases6 = x.leases6 || {};
+    const key = pc.id + ':' + pc.ifs.indexOf(i),
+      used = Object.values(x.leases6);
+    let a = x.leases6[key];
+    if (!a)
+      for (let k = 0x100n; k < 0x200n; k++) {
+        const s = f6((q.n & m6(q.l)) | k);
+        if (!used.includes(s) && !D.some((y) => y.ifs.some((j) => (j.v6 || []).some((z) => z.startsWith(s + '/'))))) {
+          a = s;
+          break;
+        }
+      }
+    if (!a) return false;
+    x.leases6[key] = a;
+    i.v6 = [a + '/' + q.l];
+    i.dh6c = true;
+    if (pool.dns) pc.dns6 = pool.dns;
+    const rt = l2(pc, i).find(([n, ni]) => isR(n) && n.v6r && v6a(n, ni).some((g) => !g.ll));
+    if (rt) pc.gw6 = f6(ll6(rt[0], rt[0].ifs.indexOf(rt[1])));
+    return true;
+  }
+  return false;
+}
+function showD6P(d) {
+  let s = '';
+  for (const n in d.pools6 || {}) {
+    const p = d.pools6[n];
+    s +=
+      'DHCPv6 pool: ' +
+      n +
+      '\n  Address allocation prefix: ' +
+      (p.prefix || '-') +
+      ' valid 172800 preferred 86400\n' +
+      (p.dns ? '  DNS server: ' + p.dns + '\n' : '') +
+      (p.dom ? '  Domain name: ' + p.dom + '\n' : '') +
+      '  Active clients: ' +
+      Object.keys(d.leases6 || {}).length +
+      '\n';
+  }
+  print(s.trimEnd() || 'Nenhum pool DHCPv6 configurado.');
+}
+function showD6B(d) {
+  let s = '';
+  for (const k in d.leases6 || {}) {
+    const [id, n] = k.split(':'),
+      c = dev(+id);
+    s +=
+      'Client: ' +
+      (c ? f6(ll6(c, +n)).toUpperCase() : '?') +
+      '\n  IA NA: IA ID 0x00040001\n    Address: ' +
+      d.leases6[k].toUpperCase() +
+      '\n            preferred lifetime 86400, valid lifetime 172800\n';
+  }
+  print(s.trimEnd() || 'Nenhuma concessão DHCPv6.');
 }
 
 /* ============================================================
@@ -4844,7 +5440,7 @@ function exec(d, t) {
       return 1;
     }
   }
-  if ('ilvrhakm'.includes(d.mode)) {
+  if ('ilvrhakmq'.includes(d.mode)) {
     const m0 = d.mode;
     d.mode = 'c';
     if (exec(d, t)) return 1;
@@ -4883,7 +5479,7 @@ function cli(d, line) {
     );
     return;
   }
-  if (c == 'do' && 'civlrhakm'.includes(d.mode) && t.length > 1) {
+  if (c == 'do' && 'civlrhakmq'.includes(d.mode) && t.length > 1) {
     const m = d.mode,
       k = d.cur;
     d.mode = 'p';
@@ -4915,7 +5511,7 @@ function cand(d, prev, cu) {
           'cls',
           'help',
         ].filter((x) => x.startsWith(cu.toLowerCase()));
-  const ms = 'ilvrhakm'.includes(d.mode) ? d.mode + 'c' : d.mode,
+  const ms = 'ilvrhakmq'.includes(d.mode) ? d.mode + 'c' : d.mode,
     r = [];
   (d.hp ? HPC : CMDS).forEach(([modes, pat, fn, only]) => {
     if (!ms.split('').some((m) => modes.includes(m)) || (only && only != d.type && !(only == 'r' && d.l3))) return;
@@ -5099,6 +5695,7 @@ function cfgText(d) {
       if (i.sb.pre) s += ' standby ' + i.sb.grp + ' preempt\n';
     }
     s += mgIfCfg(i);
+    s += o3IfCfg(i);
     s += ospfIfCfg(i);
     if (i.clk) s += ' clock rate ' + i.clk + '\n';
     if (i.nm) s += ' nameif ' + i.nm + '\n security-level ' + i.sl + '\n';
@@ -5144,6 +5741,7 @@ function cfgText(d) {
       '!\n';
   if (d.rip) s += 'router rip\n version 2\n' + d.rip.nets.map((n) => ' network ' + n + '\n').join('') + '!\n';
   s += mgCfg(d);
+  s += o3Cfg(d);
   if (d.ospf) s += ospfCfg(d);
   (d.natS || []).forEach((e) => (s += 'ip nat inside source static ' + e.l + ' ' + e.g + '\n'));
   for (const k in d.natP)
@@ -5755,6 +6353,8 @@ function pc(d, l) {
         if (r.t) startSess(r.t, r.s);
       },
     };
+  } else if (c == 'ipv6' && t[1] == 'dhcp') {
+    print(dhcp6(d) ? v6cfg(d) : 'Nenhum servidor DHCPv6 respondeu.');
   } else if (c == 'ipv6' && t[1] == 'auto') {
     print(slaac(d) ? v6cfg(d) : 'Nenhum roteador IPv6 respondeu (RA).');
   } else if (c == 'ipv6' && t[1]) {
@@ -6183,6 +6783,7 @@ function putty(src, h, tp, port, u, pw) {
 function draw() {
   dc = null;
   TC = null;
+  dc6 = null;
   let h = '';
   sp = null;
   D.forEach((d) =>
@@ -6431,7 +7032,7 @@ function rw() {
   if (!d) return;
   if (d.type == 'a') return rwA(d);
   const tb = (t, l) => `<button data-t='${t}'${wt == t ? ' class=on' : ''}>${l}</button>`;
-  let h = `<div class='row'><b style='flex:1'>${esc(d.name)} — ${d.ph ? 'Telefone IP' : d.pr ? 'Impressora' : d.srv ? 'Servidor' : d.nb ? 'Notebook' : 'PC'}</b><button id='wx'>✖</button></div><div class='row tabs'>${tb('ip', 'IP')}${!d.ph && !d.pr ? tb('v6', 'IPv6') : ''}${d.srv ? tb('sv', 'Serviços') : ''}${d.srv ? tb('mg', 'Gerência') : ''}${d.ph ? tb('tl', 'Chamada') : ''}${!d.ph && !d.pr ? tb('pt', 'PuTTY') : ''}${tb('nv', 'Navegador')}<button id='wp'>Prompt de comando</button>${d.con ? "<button id='wct'>Terminal (console)</button>" : ''}</div>`;
+  let h = `<div class='row'><b style='flex:1'>${esc(d.name)} — ${d.ph ? 'Telefone IP' : d.pr ? 'Impressora' : d.srv ? 'Servidor' : d.nb ? 'Notebook' : 'PC'}</b><button id='wx'>✖</button></div><div class='row tabs'>${tb('ip', 'IP')}${!d.ph && !d.pr ? tb('v6', 'IPv6') : ''}${d.srv ? tb('sv', 'Serviços') : ''}${d.srv ? tb('mg', 'Gerência') : ''}${d.srv ? tb('d6', 'DHCPv6') : ''}${d.ph ? tb('tl', 'Chamada') : ''}${!d.ph && !d.pr ? tb('pt', 'PuTTY') : ''}${tb('nv', 'Navegador')}<button id='wp'>Prompt de comando</button>${d.con ? "<button id='wct'>Terminal (console)</button>" : ''}</div>`;
   if (wt == 'ip') {
     d.ifs.forEach((i, k) => {
       h += `<fieldset><legend>${i.n} · ${up(i) ? 'link ativo' : 'sem link'} · MAC ${mac(d, k)}</legend><label><span>Modo</span><select data-k='${k}' data-f='dh'><option value='0'>Estático</option><option value='1'${i.dh ? ' selected' : ''}>DHCP</option></select></label><label><span>Endereço IP</span><input type='text' data-k='${k}' data-f='ip' value='${esc(i.ip)}'></label><label><span>Máscara</span><input type='text' data-k='${k}' data-f='mask' value='${esc(i.mask)}'></label>${i.wl ? `<label><span>SSID</span><input type='text' data-k='${k}' data-f='ssid' value='${esc(i.ssid)}'></label><label><span>Senha WPA2</span><input type='text' data-k='${k}' data-f='key' value='${esc(i.key)}'></label><div style='font-size:13px;color:var(--mu)'>${assoc(d, i) ? 'Associado a ' + esc(assoc(d, i).name) : 'Sem associação: aproxime do AP e confira SSID e senha'}</div>` : ''}</fieldset>`;
@@ -6441,7 +7042,7 @@ function rw() {
     d.ifs.forEach((i, k) => {
       h += `<fieldset><legend>${i.n} · link-local ${f6(ll6(d, k)).toUpperCase()}</legend><label><span>IPv6/prefixo</span><input type='text' data-k='${k}' data-f='v6' value='${esc((i.v6 || []).join(', '))}' placeholder='2001:db8:1::10/64'></label></fieldset>`;
     });
-    h += `<label><span>Gateway IPv6</span><input type='text' id='v6g' value='${esc(d.gw6 || '')}'></label><div class='row'><button id='v6ap'>Aplicar</button><button id='v6sl'>Automático (SLAAC)</button></div>`;
+    h += `<label><span>Gateway IPv6</span><input type='text' id='v6g' value='${esc(d.gw6 || '')}'></label><div class='row'><button id='v6ap'>Aplicar</button><button id='v6sl'>Automático (SLAAC)</button><button id='v6dh'>DHCPv6</button></div>`;
   } else if (wt == 'pt' && !d.ph && !d.pr) {
     h += `<fieldset><legend>PuTTY Configuration</legend><label><span>Host Name (ou IP)</span><input type='text' id='pth' value='${esc(wpt.h)}'></label><label><span>Tipo de conexão</span><select id='ptt'><option value='ssh'${wpt.t == 'ssh' ? ' selected' : ''}>SSH</option><option value='telnet'${wpt.t == 'telnet' ? ' selected' : ''}>Telnet</option><option value='serial'${wpt.t == 'serial' ? ' selected' : ''}>Serial (cabo console)</option></select></label><label><span>Porta</span><input type='text' id='ptp' value='${esc(wpt.p)}'></label><label><span>Usuário (login as)</span><input type='text' id='ptu' value='${esc(wpt.u)}'></label><label><span>Senha</span><input type='password' id='ptw' value='${esc(wpt.w)}'></label></fieldset><div class='row'><button id='ptgo'>Open</button></div><pre style='white-space:pre-wrap;min-height:60px;margin:0;background:#0e1116;color:#d6f5d6;border:1px solid var(--bd);border-radius:8px;padding:8px;font:13px ui-monospace,Menlo,Consolas,monospace'>${esc(wout)}</pre>`;
   } else if (wt == 'tl' && d.ph) {
@@ -6460,6 +7061,17 @@ function rw() {
         .map((x) => x.from + ': ' + x.msg)
         .join(' · ') || 'nenhum',
     )}</div></fieldset><div class='row'><button id='mgap'>Aplicar</button><button id='mgclr'>Limpar registros</button></div>`;
+  } else if (wt == 'd6' && d.srv) {
+    d.ifs.forEach((i, k) => {
+      if (i.wl) return;
+      const z = (i.dhs6 = i.dhs6 || { on: false, prefix: '', dns: '' });
+      h += `<fieldset><legend>DHCPv6 · ${esc(i.n)}</legend><label><span>Ativo</span><input type='checkbox' id='d6on${k}'${z.on ? ' checked' : ''}></label><label><span>Prefixo</span><input type='text' id='d6p${k}' value='${esc(z.prefix)}' placeholder='2001:db8:1::/64'></label><label><span>Servidor DNS</span><input type='text' id='d6d${k}' value='${esc(z.dns)}'></label></fieldset>`;
+    });
+    const ls6 = Object.entries(d.leases6 || {}).map(([k, v]) => {
+      const c = dev(+k.split(':')[0]);
+      return (c ? c.name : '?') + ' → ' + v;
+    });
+    h += `<div style='font-size:12px;color:var(--mu)'>Concessões DHCPv6: ${ls6.length ? esc(ls6.join(' · ')) : 'nenhuma'}</div><div class='row'><button id='d6ap'>Aplicar DHCPv6</button></div>`;
   } else if (wt == 'sv' && d.srv) {
     if (d.dh && !d.ifs.some((i) => i.dhs)) d.ifs[0].dhs = d.dh;
     delete d.dh;
@@ -8323,6 +8935,122 @@ const LABS = [
       },
     ],
   },
+  {
+    id: 'ospf3',
+    t: '17. OSPFv3 (IPv6) em três roteadores',
+    lv: 'Avançado',
+    d: 'Os endereços IPv6 das interfaces já estão configurados. Habilite o roteamento IPv6 e o OSPFv3 (área 0) para o PC1 alcançar o PC2 sem rotas estáticas.',
+    build: () => {
+      const p1 = addD('p', 'PC1', 60, 150),
+        r1 = addD('r', 'R1', 200, 150),
+        r2 = addD('r', 'R2', 380, 150),
+        r3 = addD('r', 'R3', 560, 150),
+        p2 = addD('p', 'PC2', 700, 150);
+      conn(p1, 0, r1, 0);
+      conn(r1, 1, r2, 0);
+      conn(r2, 1, r3, 0);
+      conn(r3, 1, p2, 0);
+      const v6 = (r, k, a) => {
+        r.ifs[k].v6 = [a];
+        r.ifs[k].sd = false;
+      };
+      v6(r1, 0, '2001:db8:1::1/64');
+      v6(r1, 1, '2001:db8:12::1/64');
+      v6(r2, 0, '2001:db8:12::2/64');
+      v6(r2, 1, '2001:db8:23::1/64');
+      v6(r3, 0, '2001:db8:23::2/64');
+      v6(r3, 1, '2001:db8:3::1/64');
+      p1.ifs[0].v6 = ['2001:db8:1::10/64'];
+      p1.gw6 = f6(ll6(r1, 0));
+      p2.ifs[0].v6 = ['2001:db8:3::10/64'];
+      p2.gw6 = f6(ll6(r3, 1));
+    },
+    goals: [
+      {
+        t: 'ipv6 unicast-routing habilitado nos três roteadores',
+        ck: () => ['R1', 'R2', 'R3'].every((n) => labG(n).v6r),
+        hint: 'ipv6 unicast-routing em cada roteador.',
+      },
+      {
+        t: 'Processo OSPFv3 com router-id nos três roteadores',
+        ck: () => ['R1', 'R2', 'R3'].every((n) => labG(n).ospf3 && labG(n).ospf3.rid),
+        hint: 'ipv6 router ospf 1 e router-id 1.1.1.1 (o OSPFv3 exige um ID de 32 bits).',
+      },
+      {
+        t: 'Interfaces habilitadas na área 0 (ipv6 ospf 1 area 0)',
+        ck: () => ['R1', 'R2', 'R3'].every((n) => labG(n).ifs.filter((i) => i.o3).length >= 2),
+        hint: 'Em cada interface: ipv6 ospf 1 area 0 (no OSPFv3 não existe comando network).',
+      },
+      {
+        t: 'R1 aprendeu por OSPFv3 a rede 2001:db8:3::/64',
+        ck: () => dynRoutes6(labG('R1')).some((r) => r.p == '2001:db8:3::/64'),
+        hint: 'Veja show ipv6 route ospf e show ipv6 ospf neighbor.',
+      },
+      {
+        t: 'PC1 alcança o PC2 (ping IPv6)',
+        ck: () => {
+          const s = labG('PC1'),
+            t = labG('PC2').ifs[0].v6[0].split('/')[0];
+          return !!s && p6(t) !== null && ping6ok(s, t);
+        },
+        hint: 'Confira também os dois lados dos links e o gateway dos PCs.',
+      },
+    ],
+  },
+  {
+    id: 'dhcp6',
+    t: '18. Servidor DHCPv6',
+    lv: 'Intermediário',
+    d: 'O servidor tem 2001:db8:1::10/64 e o R1 (2001:db8:1::1) anuncia o prefixo. Ative o DHCPv6 na placa do servidor e faça os PCs receberem endereço.',
+    build: () => {
+      const sv = addD('v', 'Servidor1', 300, 100),
+        s = addD('s', 'SW1', 300, 220),
+        p1 = addD('p', 'PC1', 200, 350),
+        p2 = addD('p', 'PC2', 400, 350),
+        r = addD('r', 'R1', 520, 220);
+      conn(sv, 0, s, 0);
+      conn(p1, 0, s, 1);
+      conn(p2, 0, s, 2);
+      conn(r, 0, s, 3);
+      sv.ifs[0].v6 = ['2001:db8:1::10/64'];
+      r.ifs[0].v6 = ['2001:db8:1::1/64'];
+      r.ifs[0].sd = false;
+      r.v6r = true;
+    },
+    goals: [
+      {
+        t: 'DHCPv6 ativo na placa do servidor com o prefixo 2001:db8:1::/64',
+        ck: () => {
+          const z = labG('Servidor1').ifs[0].dhs6;
+          return !!z && z.on && !!pa(z.prefix) && z.prefix.startsWith('2001:db8:1:');
+        },
+        hint: 'Clique no servidor → aba DHCPv6: ative, prefixo 2001:db8:1::/64 e Aplicar.',
+      },
+      {
+        t: 'PC1 e PC2 receberam endereço por DHCPv6',
+        ck: () =>
+          ['PC1', 'PC2'].every((n) => {
+            const i = labG(n).ifs[0];
+            return i.dh6c && (i.v6 || []).some((a) => a.startsWith('2001:db8:1:'));
+          }),
+        hint: 'Na janela do PC, aba IPv6 → DHCPv6 (ou o comando ipv6 dhcp).',
+      },
+      {
+        t: 'Os dois PCs têm endereços diferentes e gateway (do anúncio do R1)',
+        ck: () => {
+          const a = labG('PC1'),
+            b = labG('PC2');
+          return a.ifs[0].v6 && b.ifs[0].v6 && a.ifs[0].v6[0] != b.ifs[0].v6[0] && !!a.gw6 && !!b.gw6;
+        },
+        hint: 'O gateway vem do roteador (RA), não do DHCPv6.',
+      },
+      {
+        t: 'PC1 alcança o servidor (ping IPv6)',
+        ck: () => ping6ok(labG('PC1'), '2001:db8:1::10'),
+        hint: 'Teste depois de receber o endereço.',
+      },
+    ],
+  },
 ];
 function startLab(id, resume, fid) {
   const L = LABS.find((x) => x.id == id);
@@ -8920,6 +9648,24 @@ dwc.onclick = (e) => {
     save();
     draw();
     rw();
+  } else if (t.id == 'd6ap') {
+    let bad = '';
+    d.ifs.forEach((i, k) => {
+      const c = $('#d6on' + k);
+      if (i.wl || !i.dhs6 || !c) return;
+      i.dhs6.on = c.checked;
+      i.dhs6.prefix = $('#d6p' + k).value.trim();
+      i.dhs6.dns = $('#d6d' + k).value.trim();
+      if (i.dhs6.on && !pa(i.dhs6.prefix)) bad += i.n + ' ';
+    });
+    wmsg = bad ? 'Prefixo IPv6 inválido em: ' + bad.trim() : 'DHCPv6 aplicado.';
+    save();
+    rw();
+  } else if (t.id == 'v6dh') {
+    wmsg = dhcp6(d) ? 'DHCPv6 concluído.' : 'Nenhum servidor DHCPv6 respondeu.';
+    save();
+    draw();
+    rw();
   } else if (t.id == 'v6sl') {
     wmsg = slaac(d)
       ? 'SLAAC concluído: endereço e gateway obtidos do roteador.'
@@ -9126,6 +9872,7 @@ inp.addEventListener('keydown', (e) => {
     inp.value = '';
     dc = null;
     TC = null;
+    dc6 = null;
     sp = null;
     const A = asks[d.id];
     print(A ? A.p : PR(d) + ' ' + l);
